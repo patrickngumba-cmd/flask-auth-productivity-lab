@@ -1,9 +1,17 @@
-from flask import request, session, make_response, jsonify
+from flask import request, session
 from flask_restful import Resource
+from marshmallow import ValidationError
 
 from config import app, db, api
 from models import User, Note
 from schemas import user_schema, note_schema, notes_schema
+
+
+def get_current_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    return User.query.filter_by(id=user_id).first()
 
 
 class Signup(Resource):
@@ -36,14 +44,9 @@ class Signup(Resource):
 
 class CheckSession(Resource):
     def get(self):
-        user_id = session.get('user_id')
-        if not user_id:
-            return {"error": "Unauthorized"}, 401
-
-        user = User.query.filter_by(id=user_id).first()
+        user = get_current_user()
         if not user:
             return {"error": "Unauthorized"}, 401
-
         return user_schema.dump(user), 200
 
 
@@ -72,10 +75,112 @@ class Logout(Resource):
         return {"error": "Unauthorized"}, 401
 
 
+class NoteList(Resource):
+    def get(self):
+        user = get_current_user()
+        if not user:
+            return {"error": "Unauthorized"}, 401
+
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 5, type=int)
+
+        pagination = Note.query.filter_by(user_id=user.id).order_by(Note.id.asc()).paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
+
+        return {
+            "notes": notes_schema.dump(pagination.items),
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+            "total_pages": pagination.pages
+        }, 200
+
+    def post(self):
+        user = get_current_user()
+        if not user:
+            return {"error": "Unauthorized"}, 401
+
+        data = request.get_json()
+        if not data:
+            return {"error": "No input data provided"}, 400
+
+        try:
+            validated = note_schema.load(data)
+            new_note = Note(
+                title=validated['title'],
+                content=validated['content'],
+                user_id=user.id
+            )
+            db.session.add(new_note)
+            db.session.commit()
+            return note_schema.dump(new_note), 201
+        except ValidationError as err:
+            return {"errors": err.messages}, 400
+        except ValueError as err:
+            db.session.rollback()
+            return {"error": str(err)}, 400
+
+
+class NoteDetail(Resource):
+    def get(self, id):
+        user = get_current_user()
+        if not user:
+            return {"error": "Unauthorized"}, 401
+
+        note = Note.query.filter_by(id=id, user_id=user.id).first()
+        if not note:
+            return {"error": "Note not found"}, 404
+
+        return note_schema.dump(note), 200
+
+    def patch(self, id):
+        user = get_current_user()
+        if not user:
+            return {"error": "Unauthorized"}, 401
+
+        note = Note.query.filter_by(id=id, user_id=user.id).first()
+        if not note:
+            return {"error": "Note not found"}, 404
+
+        data = request.get_json()
+        if not data:
+            return {"error": "No input data provided"}, 400
+
+        try:
+            if 'title' in data:
+                note.title = data['title']
+            if 'content' in data:
+                note.content = data['content']
+
+            db.session.commit()
+            return note_schema.dump(note), 200
+        except ValueError as err:
+            db.session.rollback()
+            return {"error": str(err)}, 400
+
+    def delete(self, id):
+        user = get_current_user()
+        if not user:
+            return {"error": "Unauthorized"}, 401
+
+        note = Note.query.filter_by(id=id, user_id=user.id).first()
+        if not note:
+            return {"error": "Note not found"}, 404
+
+        db.session.delete(note)
+        db.session.commit()
+        return {"message": "Note deleted successfully"}, 200
+
+
 api.add_resource(Signup, '/signup')
 api.add_resource(CheckSession, '/check_session', '/me')
 api.add_resource(Login, '/login')
 api.add_resource(Logout, '/logout')
+api.add_resource(NoteList, '/notes')
+api.add_resource(NoteDetail, '/notes/<int:id>')
 
 
 if __name__ == '__main__':
