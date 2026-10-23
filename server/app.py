@@ -7,6 +7,7 @@ from models import User, Note
 from schemas import user_schema, note_schema, notes_schema
 
 
+# Helper to look up the currently logged-in user from the session cookie
 def get_current_user():
     user_id = session.get('user_id')
     if not user_id:
@@ -81,9 +82,11 @@ class NoteList(Resource):
         if not user:
             return {"error": "Unauthorized"}, 401
 
+        # Read pagination parameters from query string with defaults
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 5, type=int)
 
+        # Filter notes so users only see their own records
         pagination = Note.query.filter_by(user_id=user.id).order_by(Note.id.asc()).paginate(
             page=page,
             per_page=per_page,
@@ -130,6 +133,7 @@ class NoteDetail(Resource):
         if not user:
             return {"error": "Unauthorized"}, 401
 
+        # Filter by both note id and current user_id to prevent accessing others' notes
         note = Note.query.filter_by(id=id, user_id=user.id).first()
         if not note:
             return {"error": "Note not found"}, 404

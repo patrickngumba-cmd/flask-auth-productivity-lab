@@ -1,6 +1,5 @@
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import validates
-from datetime import datetime, timezone
 
 from config import db, bcrypt
 
@@ -14,6 +13,7 @@ class User(db.Model):
 
     notes = db.relationship('Note', back_populates='user', cascade='all, delete-orphan')
 
+    # Ensure username is present and unique before saving
     @validates('username')
     def validate_username(self, key, value):
         if not value or not value.strip():
@@ -23,10 +23,12 @@ class User(db.Model):
             raise ValueError("Username must be unique.")
         return value.strip()
 
+    # Block direct reading of password_hash
     @hybrid_property
     def password_hash(self):
         raise AttributeError("Password hashes may not be viewed.")
 
+    # Hash plain-text password with Bcrypt before storing in _password_hash
     @password_hash.setter
     def password_hash(self, password):
         if not password or len(password) < 4:
@@ -49,7 +51,7 @@ class Note(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(120), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
     user = db.relationship('User', back_populates='notes')
