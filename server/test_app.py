@@ -1,5 +1,5 @@
 import pytest
-from config import app, db
+from app import app, db
 from models import User, Note
 
 
@@ -78,7 +78,6 @@ def test_notes_pagination_and_ownership(client):
 
 
 def test_user_cannot_modify_other_users_notes(client):
-    # Alice logs in and tries to edit or delete Bob's note (id=7)
     client.post('/login', json={"username": "alice", "password": "pass1234"})
 
     patch_res = client.patch('/notes/7', json={"title": "Hacked"})
